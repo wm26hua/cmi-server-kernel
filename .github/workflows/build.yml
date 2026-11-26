@@ -44,10 +44,6 @@ jobs:
             python3 -c 'p="drivers/kernelsu/hook/patch_memory.c"; s=open(p).read(); old="#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)\n#define copy_to_kernel_nofault(dst, src, size)                                 \\\n\tprobe_kernel_write((dst), (src), (size))\n#endif"; assert old in s, "copy_to_kernel_nofault macro not found"; open(p,"w").write(s.replace(old, "/* copy_to_kernel_nofault already backported in uaccess.h */", 1))'
           fi
 
-          if ! grep -q "cl_softerr" include/linux/sunrpc/clnt.h; then
-            python3 -c 'p="include/linux/sunrpc/clnt.h"; s=open(p).read(); t="\tunsigned int\t\tcl_softrtry : 1,/* soft timeouts */\n"; assert t in s, "cl_softrtry line not found"; open(p,"w").write(s.replace(t, t+"\t\t\t\tcl_softerr  : 1,/* soft errors */\n", 1))'
-          fi
-
       - name: Generate and verify defconfig
         run: |
           cd kernel
