@@ -126,20 +126,25 @@ def main():
         "fs/read_write.c",
         [
             (
-                "extern ksu_handle_sys_read",
-                "ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)",
+                "extern and call ksu_handle_sys_read",
+                "ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)\n"
+                "{\n"
+                "\tstruct fd f = fdget_pos(fd);\n"
+                "\tssize_t ret = -EBADF;\n"
+                "\n"
+                "\tif (f.file) {",
                 "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
                 "extern void ksu_handle_sys_read(unsigned int fd);\n"
                 "#endif\n\n"
-                "ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)",
-            ),
-            (
-                "call ksu_handle_sys_read",
-                "\tif (f.file) {\n\t\tloff_t pos = file_pos_read(f.file);",
+                "ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)\n"
+                "{\n"
+                "\tstruct fd f = fdget_pos(fd);\n"
+                "\tssize_t ret = -EBADF;\n"
+                "\n"
                 "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
                 "\tksu_handle_sys_read(fd);\n"
                 "#endif\n"
-                "\tif (f.file) {\n\t\tloff_t pos = file_pos_read(f.file);",
+                "\tif (f.file) {",
             ),
         ],
     )
@@ -148,16 +153,21 @@ def main():
         "drivers/input/input.c",
         [
             (
-                "extern ksu_handle_input_handle_event",
-                "void input_event(struct input_dev *dev,",
+                "extern and call ksu_handle_input_handle_event",
+                "void input_event(struct input_dev *dev,\n"
+                "\t\t unsigned int type, unsigned int code, int value)\n"
+                "{\n"
+                "\tunsigned long flags;\n"
+                "\n"
+                "\tif (is_event_supported(type, dev->evbit, EV_MAX)) {",
                 "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
                 "extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\n"
                 "#endif\n\n"
-                "void input_event(struct input_dev *dev,",
-            ),
-            (
-                "call ksu_handle_input_handle_event",
-                "\tif (is_event_supported(type, dev->evbit, EV_MAX)) {",
+                "void input_event(struct input_dev *dev,\n"
+                "\t\t unsigned int type, unsigned int code, int value)\n"
+                "{\n"
+                "\tunsigned long flags;\n"
+                "\n"
                 "#ifdef CONFIG_KSU_MANUAL_HOOK\n"
                 "\tksu_handle_input_handle_event(&type, &code, &value);\n"
                 "#endif\n"
