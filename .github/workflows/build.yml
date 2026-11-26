@@ -39,10 +39,7 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
           cp ../cmi-server.config arch/arm64/configs/vendor/xiaomi/cmi-server.config
-
-          if grep -q "copy_to_kernel_nofault" include/linux/uaccess.h; then
-            python3 -c 'p="drivers/kernelsu/hook/patch_memory.c"; s=open(p).read(); old="#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)\n#define copy_to_kernel_nofault(dst, src, size)                                 \\\n\tprobe_kernel_write((dst), (src), (size))\n#endif"; assert old in s, "copy_to_kernel_nofault macro not found"; open(p,"w").write(s.replace(old, "/* copy_to_kernel_nofault already backported in uaccess.h */", 1))'
-          fi
+          python3 ../apply_ksu_manual_hooks.py
 
       - name: Generate and verify defconfig
         run: |
@@ -59,9 +56,9 @@ jobs:
           make -j$(nproc) $MAKE_ARGS olddefconfig
 
           echo "=== Key Config Verification ==="
-          grep -E "^(CONFIG_KSU|CONFIG_KSU_SYSCALL_TABLE_HOOK|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_CGROUP_DEVICE|CONFIG_CGROUP_PIDS|CONFIG_OVERLAY_FS|CONFIG_TUN|CONFIG_BTRFS_FS|CONFIG_USB_RTL8152)=" out/.config
+          grep -E "^(CONFIG_KSU|CONFIG_KSU_MANUAL_HOOK|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_CGROUP_DEVICE|CONFIG_CGROUP_PIDS|CONFIG_OVERLAY_FS|CONFIG_TUN|CONFIG_BTRFS_FS|CONFIG_USB_RTL8152)=" out/.config
           grep -E "CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
-          for sym in CONFIG_KSU CONFIG_KSU_SYSCALL_TABLE_HOOK CONFIG_PID_NS CONFIG_USER_NS CONFIG_CGROUP_DEVICE CONFIG_CGROUP_PIDS CONFIG_OVERLAY_FS CONFIG_TUN; do
+          for sym in CONFIG_KSU CONFIG_KSU_MANUAL_HOOK CONFIG_PID_NS CONFIG_USER_NS CONFIG_CGROUP_DEVICE CONFIG_CGROUP_PIDS CONFIG_OVERLAY_FS CONFIG_TUN; do
             grep -q "^${sym}=y$" out/.config || { echo "MISSING REQUIRED CONFIG: ${sym}"; exit 1; }
           done
           if grep -q "^CONFIG_ANDROID_PARANOID_NETWORK=y$" out/.config; then
