@@ -1,0 +1,94 @@
+name: Build cmi 4.19 Server Kernel (LineageOS 22.2 + KernelSU-Next)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout config repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex git libelf-dev \
+            libssl-dev python3 unzip zip cpio rsync kmod \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi
+
+      - name: Download AOSP Clang (r522817)
+        run: |
+          mkdir -p "$HOME/clang"
+          curl -fSL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz" -o clang.tar.gz
+          tar -xzf clang.tar.gz -C "$HOME/clang"
+          rm -f clang.tar.gz
+          "$HOME/clang/bin/clang" --version
+          echo "$HOME/clang/bin" >> "$GITHUB_PATH"
+
+      - name: Clone LineageOS sm8250 kernel (lineage-22.2)
+        run: |
+          git clone --depth=1 -b lineage-22.2 https://github.com/LineageOS/android_kernel_xiaomi_sm8250.git kernel
+
+      - name: Integrate KernelSU-Next (legacy) & apply server config
+        run: |
+          cd kernel
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/legacy/kernel/setup.sh" | bash -s legacy
+          cp ../cmi-server.config arch/arm64/configs/vendor/xiaomi/cmi-server.config
+
+      - name: Generate and verify defconfig
+        run: |
+          cd kernel
+          MAKE_ARGS="O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-"
+          make -j$(nproc) $MAKE_ARGS \
+            vendor/kona-perf_defconfig \
+            vendor/debugfs.config \
+            vendor/xiaomi/sm8250-common.config \
+            vendor/xiaomi/cmi.config \
+            vendor/xiaomi/cmi-server.config
+
+          ./scripts/config --file out/.config --disable ANDROID_PARANOID_NETWORK
+          make -j$(nproc) $MAKE_ARGS olddefconfig
+
+          echo "=== Key Config Verification ==="
+          grep -E "^(CONFIG_KSU|CONFIG_KSU_SYSCALL_TABLE_HOOK|CONFIG_PID_NS|CONFIG_USER_NS|CONFIG_CGROUP_DEVICE|CONFIG_CGROUP_PIDS|CONFIG_OVERLAY_FS|CONFIG_TUN|CONFIG_BTRFS_FS|CONFIG_USB_RTL8152)=" out/.config
+          grep -E "CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
+          for sym in CONFIG_KSU CONFIG_KSU_SYSCALL_TABLE_HOOK CONFIG_PID_NS CONFIG_USER_NS CONFIG_CGROUP_DEVICE CONFIG_CGROUP_PIDS CONFIG_OVERLAY_FS CONFIG_TUN; do
+            grep -q "^${sym}=y$" out/.config || { echo "MISSING REQUIRED CONFIG: ${sym}"; exit 1; }
+          done
+          if grep -q "^CONFIG_ANDROID_PARANOID_NETWORK=y$" out/.config; then
+            echo "ERROR: CONFIG_ANDROID_PARANOID_NETWORK is still enabled"
+            exit 1
+          fi
+
+      - name: Build kernel Image
+        run: |
+          cd kernel
+          make -j$(nproc) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            Image
+          ls -lh out/arch/arm64/boot/Image
+
+      - name: Package AnyKernel3 flashable zip
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/ramdisk AnyKernel3/patch AnyKernel3/modules
+          cp anykernel.sh AnyKernel3/anykernel.sh
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
+          cd AnyKernel3
+          zip -r9 ../AnyKernel3-cmi-lineage22.2-server.zip .
+          cd ..
+          ls -lh AnyKernel3-cmi-lineage22.2-server.zip
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmi-server-kernel
+          path: |
+            AnyKernel3-cmi-lineage22.2-server.zip
+            kernel/out/.config
